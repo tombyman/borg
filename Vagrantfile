@@ -86,23 +86,15 @@ def packages_darwin
     # install all the (security and other) updates
     sudo softwareupdate --ignore iTunesX
     sudo softwareupdate --ignore iTunes
+    sudo softwareupdate --ignore Safari
     sudo softwareupdate --ignore "Install macOS High Sierra"
     sudo softwareupdate --install --all
-    # get osxfuse 3.x release code from github:
-    curl -s -L https://github.com/osxfuse/osxfuse/releases/download/osxfuse-3.10.4/osxfuse-3.10.4.dmg >osxfuse.dmg
-    MOUNTDIR=$(echo `hdiutil mount osxfuse.dmg | tail -1 | awk '{$1="" ; print $0}'` | xargs -0 echo) \
-    && sudo installer -pkg "${MOUNTDIR}/Extras/FUSE for macOS 3.10.4.pkg" -target /
-    sudo chown -R vagrant /usr/local  # brew must be able to create stuff here
-    which brew || ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+    which brew || CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
     brew update > /dev/null
-    brew install pkg-config || brew upgrade pkg-config
-    brew install readline || brew upgrade readline
-    brew install openssl@1.1 || brew upgrade openssl@1.1
-    brew install zstd || brew upgrade zstd
-    brew install lz4 || brew upgrade lz4
-    brew install xz || brew upgrade xz  # required for python lzma module
-    brew install fakeroot || brew upgrade fakeroot
-    brew install git || brew upgrade git
+    brew install pkg-config readline openssl@1.1 zstd lz4 xz fakeroot git
+    brew tap homebrew/cask
+    brew cask install osxfuse
+    brew upgrade  # upgrade everything
     echo 'export PKG_CONFIG_PATH=/usr/local/opt/openssl@1.1/lib/pkgconfig' >> ~vagrant/.bash_profile
   EOF
 end
@@ -111,11 +103,11 @@ def packages_openindiana
   return <<-EOF
     # needs separate provisioning step + reboot:
     #pkg update
-    # already installed:
-    #pkg install python-35 virtualenv-35 pip-35 clang-40 lz4 zstd git
-    ln -sf /usr/bin/python3.5 /usr/bin/pyton3
-    ln -sf /usr/bin/virtualenv-3.5 /usr/bin/virtualenv
-    ln -sf /usr/bin/pip-3.5 /usr/bin/pip
+    pkg install python-37 clang-40 lz4 zstd git
+    ln -sf /usr/bin/python3.7 /usr/bin/python3
+    python3 -m ensurepip
+    ln -sf /usr/bin/pip3.7 /usr/bin/pip3
+    pip3 install virtualenv
   EOF
 end
 
@@ -141,7 +133,6 @@ def install_pythons(boxname)
     pyenv install 3.8.0  # tests, version supporting openssl 1.1
     pyenv install 3.7.0  # tests, version supporting openssl 1.1
     pyenv install 3.6.9  # binary build, tests, version supporting openssl 1.1
-    pyenv install 3.5.3  # tests, 3.5.3 is first to support openssl 1.1
     pyenv rehash
   EOF
 end
@@ -210,6 +201,7 @@ def build_binary_with_pyinstaller(boxname)
     cd borg
     pyinstaller --clean --distpath=/vagrant/borg scripts/borg.exe.spec
     echo 'export PATH="/vagrant/borg:$PATH"' >> ~/.bash_profile
+    cd .. && tar -czvf borg.tgz borg-dir
   EOF
 end
 
@@ -220,16 +212,16 @@ def run_tests(boxname)
     . ../borg-env/bin/activate
     if which pyenv 2> /dev/null; then
       # for testing, use the earliest point releases of the supported python versions:
-      pyenv global 3.5.3 3.6.9 3.7.0 3.8.0
-      pyenv local 3.5.3 3.6.9 3.7.0 3.8.0
+      pyenv global 3.6.9 3.7.0 3.8.0
+      pyenv local 3.6.9 3.7.0 3.8.0
     fi
     # otherwise: just use the system python
     if which fakeroot 2> /dev/null; then
       echo "Running tox WITH fakeroot -u"
-      fakeroot -u tox --skip-missing-interpreters -e py35,py36,py37,py38
+      fakeroot -u tox --skip-missing-interpreters -e py36,py37,py38
     else
       echo "Running tox WITHOUT fakeroot -u"
-      tox --skip-missing-interpreters -e py35,py36,py37,py38
+      tox --skip-missing-interpreters -e py36,py37,py38
     fi
   EOF
 end
@@ -251,7 +243,7 @@ end
 
 Vagrant.configure(2) do |config|
   # use rsync to copy content to the folder
-  config.vm.synced_folder ".", "/vagrant/borg/borg", :type => "rsync", :rsync__args => ["--verbose", "--archive", "--delete", "-z"], :rsync__chown => false
+  config.vm.synced_folder ".", "/vagrant/borg/borg", :type => "rsync", :rsync__args => ["--verbose", "--archive", "--delete", "--exclude", ".python-version"], :rsync__chown => false
   # do not let the VM access . on the host machine via the default shared folder!
   config.vm.synced_folder ".", "/vagrant", disabled: true
 
@@ -362,8 +354,9 @@ Vagrant.configure(2) do |config|
     b.vm.box = "macos-sierra"
     b.vm.provider :virtualbox do |v|
       v.memory = 2048 + $wmem
-      v.customize ['modifyvm', :id, '--ostype', 'MacOS1012_64']
+      v.customize ['modifyvm', :id, '--ostype', 'MacOS_64']
       v.customize ['modifyvm', :id, '--paravirtprovider', 'default']
+      v.customize ['modifyvm', :id, '--nested-hw-virt', 'on']
       # Adjust CPU settings according to
       # https://github.com/geerlingguy/macos-virtualbox-vm
       v.customize ['modifyvm', :id, '--cpuidset',
@@ -397,6 +390,6 @@ Vagrant.configure(2) do |config|
     b.vm.provision "run tests", :type => :shell, :privileged => false, :inline => run_tests("openindiana64")
   end
 
-  # TODO: create more VMs with python 3.5+ and openssl 1.1.
+  # TODO: create more VMs with python 3.6+ and openssl 1.1.
   # See branch 1.1-maint for a better equipped Vagrantfile (but still on py34 and openssl 1.0).
 end
