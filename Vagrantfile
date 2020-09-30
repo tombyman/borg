@@ -21,7 +21,7 @@ def packages_debianoid(user)
     apt-get install -y fakeroot build-essential git
     apt-get install -y python3-dev python3-setuptools
     # for building python:
-    apt-get install -y zlib1g-dev libbz2-dev libncurses5-dev libreadline-dev liblzma-dev libsqlite3-dev
+    apt-get install -y zlib1g-dev libbz2-dev libncurses5-dev libreadline-dev liblzma-dev libsqlite3-dev libffi-dev
     # this way it works on older dists (like ubuntu 12.04) also:
     # for python 3.2 on ubuntu 12.04 we need pip<8 and virtualenv<14 as
     # newer versions are not compatible with py 3.2 any more.
@@ -49,7 +49,7 @@ def packages_redhatted
     # needed to compile msgpack-python (otherwise it will use slow fallback code):
     yum install -y gcc-c++
     # for building python:
-    yum install -y zlib-devel bzip2-devel ncurses-devel readline-devel xz xz-devel sqlite-devel
+    yum install -y zlib-devel bzip2-devel ncurses-devel readline-devel xz xz-devel sqlite-devel libffi-devel
     #yum install -y python-pip
     #pip install virtualenv
   EOF
@@ -60,23 +60,15 @@ def packages_darwin
     # install all the (security and other) updates
     sudo softwareupdate --ignore iTunesX
     sudo softwareupdate --ignore iTunes
+    sudo softwareupdate --ignore Safari
     sudo softwareupdate --ignore "Install macOS High Sierra"
     sudo softwareupdate --install --all
-    # get osxfuse 3.x release code from github:
-    curl -s -L https://github.com/osxfuse/osxfuse/releases/download/osxfuse-3.10.4/osxfuse-3.10.4.dmg >osxfuse.dmg
-    MOUNTDIR=$(echo `hdiutil mount osxfuse.dmg | tail -1 | awk '{$1="" ; print $0}'` | xargs -0 echo) \
-    && sudo installer -pkg "${MOUNTDIR}/Extras/FUSE for macOS 3.10.4.pkg" -target /
-    sudo chown -R vagrant /usr/local  # brew must be able to create stuff here
-    which brew || ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+    which brew || CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
     brew update > /dev/null
-    brew install pkg-config || brew upgrade pkg-config
-    brew install readline || brew upgrade readline
-    brew install openssl@1.1 || brew upgrade openssl@1.1
-    brew install zstd || brew upgrade zstd
-    brew install lz4 || brew upgrade lz4
-    brew install xz || brew upgrade xz  # required for python lzma module
-    brew install fakeroot || brew upgrade fakeroot
-    brew install git || brew upgrade git
+    brew install pkg-config readline openssl@1.1 zstd lz4 xz fakeroot git
+    brew tap homebrew/cask
+    brew cask install osxfuse
+    brew upgrade  # upgrade everything
     echo 'export PKG_CONFIG_PATH=/usr/local/opt/openssl@1.1/lib/pkgconfig' >> ~vagrant/.bash_profile
   EOF
 end
@@ -91,7 +83,7 @@ def packages_freebsd
     pkg install -y openssl liblz4 fusefs-libs pkgconf
     pkg install -y git bash
     # for building python:
-    pkg install -y sqlite3
+    pkg install -y sqlite3 libffi
     # make bash default / work:
     chsh -s bash vagrant
     mount -t fdescfs fdesc /dev/fd
@@ -154,7 +146,8 @@ def packages_openindiana
     # needs separate provisioning step + reboot:
     #pkg update
     # already installed:
-    #pkg install python-35 virtualenv-35 pip-35 clang-40 lz4 zstd git
+    #pkg install python-37 python-35 virtualenv-35 pip-35 clang-40 lz4 zstd git
+    pkg install gcc-7
     ln -sf /usr/bin/python3.5 /usr/bin/pyton3
     ln -sf /usr/bin/virtualenv-3.5 /usr/bin/virtualenv
     ln -sf /usr/bin/pip-3.5 /usr/bin/pip
@@ -238,7 +231,7 @@ def install_pythons(boxname)
     pyenv install 3.6.2  # tests
     pyenv install 3.7.0  # tests
     pyenv install 3.8.0  # tests
-    pyenv install 3.5.9  # binary build, use latest 3.5.x release
+    pyenv install 3.5.10  # binary build, use latest 3.5.x release
     pyenv rehash
   EOF
 end
@@ -256,8 +249,8 @@ def build_pyenv_venv(boxname)
     . ~/.bash_profile
     cd /vagrant/borg
     # use the latest 3.5 release
-    pyenv global 3.5.9
-    pyenv virtualenv 3.5.9 borg-env
+    pyenv global 3.5.10
+    pyenv virtualenv 3.5.10 borg-env
     ln -s ~/.pyenv/versions/borg-env .
   EOF
 end
@@ -307,6 +300,7 @@ def build_binary_with_pyinstaller(boxname)
     cd borg
     pyinstaller --clean --distpath=/vagrant/borg scripts/borg.exe.spec
     echo 'export PATH="/vagrant/borg:$PATH"' >> ~/.bash_profile
+    cd .. && tar -czvf borg.tgz borg-dir
   EOF
 end
 
@@ -481,8 +475,9 @@ Vagrant.configure(2) do |config|
     b.vm.box = "macos-sierra"
     b.vm.provider :virtualbox do |v|
       v.memory = 2048 + $wmem
-      v.customize ['modifyvm', :id, '--ostype', 'MacOS1012_64']
+      v.customize ['modifyvm', :id, '--ostype', 'MacOS_64']
       v.customize ['modifyvm', :id, '--paravirtprovider', 'default']
+      v.customize ['modifyvm', :id, '--nested-hw-virt', 'on']
       # Adjust CPU settings according to
       # https://github.com/geerlingguy/macos-virtualbox-vm
       v.customize ['modifyvm', :id, '--cpuidset',

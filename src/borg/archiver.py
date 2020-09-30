@@ -323,8 +323,10 @@ class Archiver:
     def do_check(self, args, repository):
         """Check repository consistency"""
         if args.repair:
-            msg = ("'check --repair' is an experimental feature that might result in data loss." +
-                   "\n" +
+            msg = ("This is a potentially dangerous function.\n"
+                   "check --repair might lead to data loss (for kinds of corruption it is not\n"
+                   "capable of dealing with). BE VERY CAREFUL!\n"
+                   "\n"
                    "Type 'YES' if you understand this and want to continue: ")
             if not yes(msg, false_msg="Aborting.", invalid_msg="Invalid answer, aborting.",
                        truish=('YES', ), retry=False,
@@ -1708,12 +1710,6 @@ class Archiver:
     @with_repository(cache=True, exclusive=True, compatibility=(Manifest.Operation.CHECK,))
     def do_recreate(self, args, repository, manifest, key, cache):
         """Re-create archives"""
-        msg = ("recreate is an experimental feature.\n"
-               "Type 'YES' if you understand this and want to continue: ")
-        if not yes(msg, false_msg="Aborting.", truish=('YES',),
-                   env_var_override='BORG_RECREATE_I_KNOW_WHAT_I_AM_DOING'):
-            return EXIT_ERROR
-
         matcher = self.build_matcher(args.patterns, args.paths)
         self.output_list = args.output_list
         self.output_filter = args.output_filter
@@ -3047,6 +3043,9 @@ class Archiver:
         check_epilog = process_epilog("""
         The check command verifies the consistency of a repository and the corresponding archives.
 
+        check --repair is a potentially dangerous function and might lead to data loss
+        (for kinds of corruption it is not capable of dealing with). BE VERY CAREFUL!
+
         First, the underlying repository data files are checked:
 
         - For all segments, the segment magic header is checked.
@@ -3815,7 +3814,8 @@ class Archiver:
         subparser.add_argument('-n', '--dry-run', dest='dry_run', action='store_true',
                                help='do not change repository')
         subparser.add_argument('--force', dest='forced', action='store_true',
-                               help='force pruning of corrupted archives')
+                               help='force pruning of corrupted archives, '
+                                    'use ``--force --force`` in case ``--force`` does not work.')
         subparser.add_argument('-s', '--stats', dest='stats', action='store_true',
                                help='print statistics for the deleted archive')
         subparser.add_argument('--list', dest='output_list', action='store_true',
@@ -3949,7 +3949,8 @@ class Archiver:
         recreate_epilog = process_epilog("""
         Recreate the contents of existing archives.
 
-        This is an *experimental* feature. Do *not* use this on your only backup.
+        recreate is a potentially dangerous function and might lead to data loss
+        (if used wrongly). BE VERY CAREFUL!
 
         ``--exclude``, ``--exclude-from``, ``--exclude-if-present``, ``--keep-exclude-tags``
         and PATH have the exact same semantics as in "borg create", but they only check
@@ -4389,27 +4390,27 @@ class Archiver:
                 # make sure we only process like normal if the client is executing
                 # the same command as specified in the forced command, otherwise
                 # just skip this block and return the forced command (== result).
-                # client is allowed to specify the whitelisted options,
+                # client is allowed to specify the allowlisted options,
                 # everything else comes from the forced "borg serve" command (or the defaults).
-                # stuff from blacklist must never be used from the client.
-                blacklist = {
+                # stuff from denylist must never be used from the client.
+                denylist = {
                     'restrict_to_paths',
                     'restrict_to_repositories',
                     'append_only',
                     'storage_quota',
                 }
-                whitelist = {
+                allowlist = {
                     'debug_topics',
                     'lock_wait',
                     'log_level',
                     'umask',
                 }
                 not_present = object()
-                for attr_name in whitelist:
-                    assert attr_name not in blacklist, 'whitelist has blacklisted attribute name %s' % attr_name
+                for attr_name in allowlist:
+                    assert attr_name not in denylist, 'allowlist has denylisted attribute name %s' % attr_name
                     value = getattr(client_result, attr_name, not_present)
                     if value is not not_present:
-                        # note: it is not possible to specify a whitelisted option via a forced command,
+                        # note: it is not possible to specify a allowlisted option via a forced command,
                         # it always gets overridden by the value specified (or defaulted to) by the client commmand.
                         setattr(result, attr_name, value)
 
